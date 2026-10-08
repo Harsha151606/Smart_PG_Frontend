@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import api from "../api";
 
 function Login() {
   const navigate = useNavigate();
@@ -8,7 +9,7 @@ function Login() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
 
-  const handleLogin = (e) => {
+  const handleLogin = async (e) => {
     e.preventDefault();
 
     setError("");
@@ -18,33 +19,25 @@ function Login() {
       return;
     }
 
-    const users =
-      JSON.parse(localStorage.getItem("users")) || [];
+    try {
+      const response = await api.post("/auth/login", { email, password });
+      
+      const loggedInUser = {
+        id: response.data.userId,
+        name: response.data.name,
+        email: response.data.email,
+        role: response.data.role,
+        token: response.data.token
+      };
 
-    const user = users.find(
-      (user) =>
-        user.email === email &&
-        user.password === password
-    );
+      localStorage.setItem("user", JSON.stringify(loggedInUser));
+      localStorage.setItem("token", response.data.token);
+      localStorage.setItem("role", response.data.role);
 
-    if (!user) {
-      setError("Invalid email or password.");
-      return;
+      navigate("/dashboard");
+    } catch (err) {
+      setError(err.response?.data?.error || "Invalid email or password.");
     }
-
-    const loggedInUser = {
-      id: user.id,
-      name: user.name,
-      email: user.email,
-      role: user.role
-    };
-
-    localStorage.setItem(
-      "user",
-      JSON.stringify(loggedInUser)
-    );
-
-    navigate("/dashboard");
   };
 
   return (

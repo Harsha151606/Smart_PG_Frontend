@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import api from "../api";
 
 function Register() {
   const navigate = useNavigate();
@@ -24,99 +25,57 @@ function Register() {
   };
 
   // Handle registration
-  const handleRegister = (e) => {
+  const handleRegister = async (e) => {
     e.preventDefault();
 
     setError("");
     setSuccess("");
 
-    const {
-      name,
-      email,
-      password,
-      confirmPassword,
-      role
-    } = formData;
+    const { name, email, password, confirmPassword, role } = formData;
 
-    // 1. Check empty fields
-    if (
-      !name ||
-      !email ||
-      !password ||
-      !confirmPassword
-    ) {
+    if (!name || !email || !password || !confirmPassword) {
       setError("Please fill all fields.");
       return;
     }
 
-    // 2. Check email
     if (!email.includes("@")) {
       setError("Please enter a valid email.");
       return;
     }
 
-    // 3. Check password length
     if (password.length < 6) {
       setError("Password must be at least 6 characters.");
       return;
     }
 
-    // 4. Check passwords
     if (password !== confirmPassword) {
       setError("Passwords do not match.");
       return;
     }
 
-    // 5. Get existing users
-    const existingUsers =
-      JSON.parse(localStorage.getItem("users")) || [];
+    try {
+      await api.post("/auth/register", {
+        name,
+        email,
+        password,
+        role
+      });
 
-    // 6. Check duplicate email
-    const existingUser = existingUsers.find(
-      (user) => user.email === email
-    );
+      setSuccess("Account created successfully!");
+      setFormData({
+        name: "",
+        email: "",
+        password: "",
+        confirmPassword: "",
+        role: "STUDENT"
+      });
 
-    if (existingUser) {
-      setError("An account with this email already exists.");
-      return;
+      setTimeout(() => {
+        navigate("/login");
+      }, 1000);
+    } catch (err) {
+      setError(err.response?.data?.error || "Registration failed. Please try again.");
     }
-
-    // 7. Create new user
-    const newUser = {
-      id: Date.now(),
-      name: name,
-      email: email,
-      password: password,
-      role: role
-    };
-
-    // 8. Add user to existing users
-    existingUsers.push(newUser);
-
-    // 9. Save users
-    localStorage.setItem(
-      "users",
-      JSON.stringify(existingUsers)
-    );
-
-    // 10. Show success
-    setSuccess(
-      "Account created successfully!"
-    );
-
-    // 11. Clear form
-    setFormData({
-      name: "",
-      email: "",
-      password: "",
-      confirmPassword: "",
-      role: "STUDENT"
-    });
-
-    // 12. Go to login after 1 second
-    setTimeout(() => {
-      navigate("/login");
-    }, 1000);
   };
 
   return (
