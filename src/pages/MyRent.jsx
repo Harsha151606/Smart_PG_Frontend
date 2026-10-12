@@ -1,111 +1,184 @@
 import React, { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
 import api from "../api";
+import Layout from "../components/Layout";
+import { PaymentIcon, BedIcon } from "../components/Icons";
 
 function MyRent() {
-  const navigate = useNavigate();
   const [payments, setPayments] = useState([]);
   const [student, setStudent] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
+  const loadPayments = async (studentId, silent = false) => {
+    if (!silent) setLoading(true);
+    try {
+      const res = await api.get(`/payments/student/${studentId}`);
+      setPayments(res.data || []);
+      if (!silent) setError("");
+    } catch (err) {
+      if (!silent) {
+        setError(err.response?.data?.error || "Could not load rent payment history.");
+      }
+    } finally {
+      if (!silent) setLoading(false);
+    }
+  };
+
   useEffect(() => {
+    let activeStudentId = null;
+    let pollInterval = null;
+
     api.get("/student/me")
-      .then(res => {
+      .then((res) => {
         const s = res.data;
         setStudent(s);
-        return api.get(`/payments/student/${s.id}`);
+        activeStudentId = s.id;
+        loadPayments(s.id, false);
+
+        // Automatically update payments in real-time
+        pollInterval = setInterval(() => {
+          if (activeStudentId) {
+            loadPayments(activeStudentId, true);
+          }
+        }, 5000);
       })
-      .then(res => {
-        setPayments(res.data);
-        setLoading(false);
-      })
-      .catch(err => {
-        setError(err.response?.data?.error || "Could not load payment data.");
+      .catch((err) => {
+        setError(err.response?.data?.error || "Could not load rent payment history.");
         setLoading(false);
       });
+
+    return () => {
+      if (pollInterval) clearInterval(pollInterval);
+    };
   }, []);
 
-  const latestPayment = payments[payments.length - 1];
+  const totalPaid = payments
+    .filter((p) => p.status === "PAID")
+    .reduce((sum, p) => sum + (p.amount ? Number(p.amount) : 0), 0);
+
+  const room = student?.room;
 
   return (
-    <div className="page">
-      <header className="dashboard-header">
-        <div>
-          <h2>Smart PG</h2>
-          <p>My Rent</p>
+    <Layout>
+      {/* Page Header */}
+      <div className="page-header-voyage">
+        <div className="header-meta">
+          <h2>
+            Rent & Payment History <span>💳</span>
+          </h2>
+          <div className="header-subtitle">
+            Review your monthly room rent, payment status, and official transaction receipts.
+          </div>
         </div>
-        <button className="back-button" onClick={() => navigate("/dashboard")}>
-          ← Dashboard
-        </button>
-      </header>
+      </div>
 
-      <main className="page-content">
-        <h1>My Rent 💰</h1>
-        <p className="page-description">View your rent and payment history.</p>
+      {loading && (
+        <div className="panel-card" style={{ padding: "40px", textAlign: "center", color: "var(--text-muted)" }}>
+          Loading payment history...
+        </div>
+      )}
 
-        {loading && <p>Loading payment data...</p>}
-        {error && <p className="error">{error}</p>}
+      {error && (
+        <div className="feedback-banner feedback-error">
+          <span>⚠️</span> {error}
+        </div>
+      )}
 
-        {!loading && !error && (
-          <>
-            {student?.room && (
-              <div className="rent-card">
-                <div className="rent-header">
-                  <div>
-                    <span>Room</span>
-                    <h2>{student.room.roomNumber}</h2>
-                  </div>
-                  <div>
-                    <span>Monthly Rent</span>
-                    <h2>₹{student.room.rent?.toLocaleString()}</h2>
-                  </div>
-                  {latestPayment && (
-                    <div className={`paid-badge ${latestPayment.status === "PAID" ? "paid" : "pending"}`}>
-                      {latestPayment.status}
-                    </div>
-                  )}
+      {!loading && !error && (
+        <>
+          {/* Stat Overview Cards */}
+          <div className="stat-grid">
+            <div className="stat-card-deck">
+              <div className="stat-info">
+                <div className="stat-label">Monthly Room Rent</div>
+                <div className="stat-value" style={{ color: "var(--gold-600)" }}>
+                  ₹{room?.rent ? room.rent.toLocaleString() : "0"}
                 </div>
+                <div className="stat-subtext">Due each billing cycle</div>
               </div>
-            )}
+              <div className="stat-icon-crest gold">
+                <PaymentIcon size={24} />
+              </div>
+            </div>
 
-            <div className="complaints-list" style={{ marginTop: "1.5rem" }}>
-              <h2>Payment History</h2>
-              {payments.length === 0 ? (
-                <div className="empty-state">
-                  <p>No payments recorded yet.</p>
+            <div className="stat-card-deck">
+              <div className="stat-info">
+                <div className="stat-label">Assigned Room</div>
+                <div className="stat-value">{room ? `Room ${room.roomNumber}` : "Unallocated"}</div>
+                <div className="stat-subtext">{student?.pg?.name || "General Facility"}</div>
+              </div>
+              <div className="stat-icon-crest navy">
+                <BedIcon size={24} />
+              </div>
+            </div>
+
+            <div className="stat-card-deck">
+              <div className="stat-info">
+                <div className="stat-label">Total Amount Paid</div>
+                <div className="stat-value" style={{ color: "var(--emerald-600)" }}>
+                  ₹{totalPaid.toLocaleString()}
                 </div>
-              ) : (
-                <table className="attendance-table" style={{ width: "100%", marginTop: "1rem" }}>
+                <div className="stat-subtext">{payments.length} recorded payments</div>
+              </div>
+              <div className="stat-icon-crest emerald">
+                <span>✓</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Payment Receipts Table */}
+          <div className="panel-card">
+            <div className="panel-card-header">
+              <h3>
+                <PaymentIcon size={18} />
+                Payment Transaction Receipts
+              </h3>
+            </div>
+
+            <div className="panel-card-body">
+              <div className="table-responsive">
+                <table className="grand-table">
                   <thead>
                     <tr>
-                      <th>#</th>
-                      <th>Amount</th>
-                      <th>Date</th>
-                      <th>Status</th>
+                      <th>Receipt #</th>
+                      <th>Amount Paid</th>
+                      <th>Payment Status</th>
+                      <th>Payment Date</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {payments.map((p, idx) => (
-                      <tr key={p.id}>
-                        <td>{idx + 1}</td>
-                        <td>₹{Number(p.amount).toLocaleString()}</td>
-                        <td>{p.date}</td>
-                        <td>
-                          <span className={`attendance-status ${p.status.toLowerCase()}`}>
-                            {p.status}
-                          </span>
+                    {payments.length === 0 ? (
+                      <tr>
+                        <td colSpan="4" style={{ textAlign: "center", padding: "30px", color: "var(--text-muted)" }}>
+                          No recorded rent transactions on your account yet.
                         </td>
                       </tr>
-                    ))}
+                    ) : (
+                      payments.map((p) => (
+                        <tr key={p.id}>
+                          <td><strong>#{p.id}</strong></td>
+                          <td style={{ fontWeight: "800", color: "var(--gold-600)", fontSize: "15px" }}>
+                            ₹{p.amount ? p.amount.toLocaleString() : 0}
+                          </td>
+                          <td>
+                            <span className={`badge-grand ${p.status === "PAID" ? "badge-paid" : "badge-pending"}`}>
+                              {p.status || "PAID"}
+                            </span>
+                          </td>
+                          <td style={{ color: "var(--text-muted)" }}>
+                            {p.paymentDate ? p.paymentDate.split("T")[0] : "Verified Transaction"}
+                          </td>
+                        </tr>
+                      ))
+                    )}
                   </tbody>
                 </table>
-              )}
+              </div>
             </div>
-          </>
-        )}
-      </main>
-    </div>
+          </div>
+        </>
+      )}
+    </Layout>
   );
 }
 

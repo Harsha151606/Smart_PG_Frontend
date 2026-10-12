@@ -1,32 +1,56 @@
 import React, { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
 import api from "../api";
+import Layout from "../components/Layout";
+import { LeaveIcon } from "../components/Icons";
 
 function LeaveRequest() {
-  const navigate = useNavigate();
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
   const [reason, setReason] = useState("");
   const [message, setMessage] = useState("");
-  const [msgType, setMsgType] = useState(""); // "success" or "error"
+  const [msgType, setMsgType] = useState("");
   const [leaveRequests, setLeaveRequests] = useState([]);
   const [student, setStudent] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+
+  const loadLeaves = async (studentId, silent = false) => {
+    if (!silent) setLoading(true);
+    try {
+      const res = await api.get(`/leaves/student/${studentId}`);
+      setLeaveRequests(res.data || []);
+    } catch (err) {
+      // ignore in background
+    } finally {
+      if (!silent) setLoading(false);
+    }
+  };
 
   useEffect(() => {
+    let activeStudentId = null;
+    let pollInterval = null;
+
     api.get("/student/me")
-      .then(res => {
+      .then((res) => {
         const s = res.data;
         setStudent(s);
-        return api.get(`/leaves/student/${s.id}`);
+        activeStudentId = s.id;
+        loadLeaves(s.id, false);
+
+        // Automatically update leave approval statuses in real-time
+        pollInterval = setInterval(() => {
+          if (activeStudentId) {
+            loadLeaves(activeStudentId, true);
+          }
+        }, 5000);
       })
-      .then(res => {
-        setLeaveRequests(res.data);
-        setLoading(false);
-      })
-      .catch(err => {
+      .catch((err) => {
         setLoading(false);
       });
+
+    return () => {
+      if (pollInterval) clearInterval(pollInterval);
+    };
   }, []);
 
   const submitLeave = async (e) => {
@@ -35,115 +59,178 @@ function LeaveRequest() {
 
     if (!fromDate || !toDate || !reason) {
       setMsgType("error");
-      setMessage("Please fill all fields.");
+      setMessage("Please fill in all required travel dates and the reason for leave.");
       return;
     }
     if (new Date(toDate) < new Date(fromDate)) {
       setMsgType("error");
-      setMessage("End date cannot be before start date.");
+      setMessage("Return date cannot be earlier than departure date.");
       return;
     }
 
+    setSubmitting(true);
     try {
-      const res = await api.post("/leaves", {
+      await api.post("/leaves", {
         studentId: student.id,
         startDate: fromDate,
         endDate: toDate,
         reason
       });
-      setLeaveRequests([...leaveRequests, res.data]);
       setFromDate("");
       setToDate("");
       setReason("");
       setMsgType("success");
-      setMessage("Leave request submitted successfully!");
+      setMessage("Leave request submitted successfully for warden evaluation!");
+      loadLeaves(student.id, true);
     } catch (err) {
       setMsgType("error");
       setMessage(err.response?.data?.error || "Failed to submit leave request.");
+    } finally {
+      setSubmitting(false);
     }
   };
 
-  const statusBadge = (status) => {
-    const map = { PENDING: "pending", APPROVED: "present", REJECTED: "absent" };
-    return map[status] || "pending";
-  };
-
   return (
-    <div className="page">
-      <header className="dashboard-header">
-        <div>
-          <h2>Smart PG</h2>
-          <p>Leave Request</p>
+    <Layout>
+      {/* Page Header */}
+      <div className="page-header-voyage">
+        <div className="header-meta">
+          <h2>
+            Student Leave Requests <span>📑</span>
+          </h2>
+          <div className="header-subtitle">
+            Request permission for temporary hostel absence, vacation, or overnight visits.
+          </div>
         </div>
-        <button className="back-button" onClick={() => navigate("/dashboard")}>
-          ← Dashboard
-        </button>
-      </header>
+      </div>
 
-      <main className="page-content">
-        <h1>Leave Request 📝</h1>
+      {/* Notifications */}
+      {loading && (
+        <div className="panel-card" style={{ padding: "30px", textAlign: "center", color: "var(--text-muted)" }}>
+          Loading leave request records...
+        </div>
+      )}
+      {message && (
+        <div className={`feedback-banner ${msgType === "success" ? "feedback-success" : "feedback-error"}`}>
+          <span>{msgType === "success" ? "✓" : "⚠️"}</span> {message}
+        </div>
+      )}
 
-        {loading && <p>Loading...</p>}
+      {/* Leave Application Form */}
+      <div className="panel-card" style={{ borderLeft: "4px solid var(--ocean-600)" }}>
+        <div className="panel-card-header">
+          <h3>
+            <LeaveIcon size={18} />
+            Apply for Student Leave
+          </h3>
+        </div>
 
-        {!loading && (
-          <>
-            <div className="complaint-form-card">
-              <h2>Apply for Leave</h2>
-              <form onSubmit={submitLeave}>
-                <label>From Date</label>
+        <div className="panel-card-body">
+          <form onSubmit={submitLeave}>
+            <div className="form-grid-2">
+              <div className="form-field-group">
+                <label className="form-label-grand">Departure Date (From)</label>
                 <input
                   type="date"
+                  className="form-input-grand"
                   value={fromDate}
                   onChange={(e) => setFromDate(e.target.value)}
+                  required
                 />
-                <label>To Date</label>
+              </div>
+
+              <div className="form-field-group">
+                <label className="form-label-grand">Return Date (To)</label>
                 <input
                   type="date"
+                  className="form-input-grand"
                   value={toDate}
                   onChange={(e) => setToDate(e.target.value)}
+                  required
                 />
-                <label>Reason</label>
-                <textarea
-                  placeholder="Reason for leave..."
-                  value={reason}
-                  onChange={(e) => setReason(e.target.value)}
-                  rows="4"
-                />
-                {message && (
-                  <p className={msgType === "success" ? "success" : "error"}>{message}</p>
-                )}
-                <button type="submit" disabled={!student}>
-                  {student ? "Submit Request" : "Loading profile..."}
-                </button>
-              </form>
+              </div>
             </div>
 
-            <div className="complaints-list">
-              <h2>My Leave Requests</h2>
-              {leaveRequests.length === 0 ? (
-                <div className="empty-state">
-                  <p>No leave requests submitted yet.</p>
-                </div>
-              ) : (
-                leaveRequests.map((req) => (
-                  <div className="complaint-card" key={req.id}>
-                    <div className="complaint-header">
-                      <div>
-                        <h3>{req.startDate} → {req.endDate}</h3>
-                        <small>{req.reason}</small>
-                      </div>
-                      <span className={`attendance-status ${statusBadge(req.status)}`}>
-                        {req.status}
-                      </span>
-                    </div>
-                  </div>
-                ))
-              )}
+            <div className="form-field-group">
+              <label className="form-label-grand">Reason for Leave & Destination</label>
+              <textarea
+                className="form-textarea-grand"
+                rows="3"
+                placeholder="State destination, emergency contact, or leave details (e.g. Visiting family / Medical appointment)..."
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+                required
+              ></textarea>
             </div>
-          </>
-        )}
-      </main>
-    </div>
+
+            <button
+              type="submit"
+              className="btn-grand btn-primary-grand"
+              disabled={submitting}
+            >
+              {submitting ? "Submitting..." : "Submit Leave Application"}
+            </button>
+          </form>
+        </div>
+      </div>
+
+      {/* History Table */}
+      <div className="panel-card">
+        <div className="panel-card-header">
+          <h3>
+            <LeaveIcon size={18} />
+            My Leave Request History
+          </h3>
+        </div>
+
+        <div className="panel-card-body">
+          <div className="table-responsive">
+            <table className="grand-table">
+              <thead>
+                <tr>
+                  <th>Request #</th>
+                  <th>Departure Date</th>
+                  <th>Return Date</th>
+                  <th>Reason</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {leaveRequests.length === 0 ? (
+                  <tr>
+                    <td colSpan="5" style={{ textAlign: "center", padding: "30px", color: "var(--text-muted)" }}>
+                      No leave requests submitted yet.
+                    </td>
+                  </tr>
+                ) : (
+                  leaveRequests.map((l) => (
+                    <tr key={l.id}>
+                      <td><strong>#{l.id}</strong></td>
+                      <td>{l.startDate}</td>
+                      <td>{l.endDate}</td>
+                      <td style={{ color: "var(--text-secondary)", maxWidth: "300px" }}>{l.reason}</td>
+                      <td>
+                        <span
+                          className={`badge-grand ${
+                            l.status === "APPROVED"
+                              ? "badge-approved"
+                              : l.status === "REJECTED"
+                              ? "badge-rejected"
+                              : "badge-pending"
+                          }`}
+                        >
+                          {l.status}
+                        </span>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </Layout>
   );
 }
 

@@ -1,10 +1,30 @@
 import React, { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import api from "../api";
+import Layout from "../components/Layout";
+import ConfirmModal from "../components/ConfirmModal";
+import {
+  DashboardIcon,
+  UsersIcon,
+  BuildingIcon,
+  PaymentIcon,
+  LeaveIcon,
+  ComplaintIcon,
+  BedIcon
+} from "../components/Icons";
 
 function AdminDashboard() {
+  const location = useLocation();
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState("stats");
+
+  // Determine initial tab from route
+  const getInitialTab = () => {
+    if (location.pathname === "/manage-users") return "users";
+    if (location.pathname === "/manage-pgs") return "pgs";
+    return "stats";
+  };
+
+  const [activeTab, setActiveTab] = useState(getInitialTab);
   const [stats, setStats] = useState(null);
   const [users, setUsers] = useState([]);
   const [pgs, setPgs] = useState([]);
@@ -12,19 +32,46 @@ function AdminDashboard() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
+  // Role filter for user management (ALL, OWNER, WARDEN, STUDENT, ADMIN)
+  const [roleFilter, setRoleFilter] = useState("ALL");
+  const [userSearch, setUserSearch] = useState("");
+
   // Create/Edit user form state
   const [userForm, setUserForm] = useState({ name: "", email: "", password: "", role: "STUDENT" });
   const [editingUserId, setEditingUserId] = useState(null);
+  const [showUserForm, setShowUserForm] = useState(false);
 
   // Create PG form state
   const [pgForm, setPgForm] = useState({ name: "", address: "", ownerId: "" });
+  const [showPgForm, setShowPgForm] = useState(false);
+
+  // Modern Confirmation Modal state
+  const [confirmModal, setConfirmModal] = useState({
+    isOpen: false,
+    title: "",
+    message: "",
+    confirmText: "Delete",
+    loading: false,
+    onConfirm: null,
+  });
+
+  // Sync tab with URL if URL changes
+  useEffect(() => {
+    if (location.pathname === "/manage-users") setActiveTab("users");
+    else if (location.pathname === "/manage-pgs") setActiveTab("pgs");
+    else if (location.pathname === "/system-stats" || location.pathname === "/admin") setActiveTab("stats");
+  }, [location.pathname]);
 
   useEffect(() => {
-    fetchData();
+    fetchData(false);
+    const interval = setInterval(() => {
+      fetchData(true);
+    }, 6000);
+    return () => clearInterval(interval);
   }, []);
 
-  const fetchData = async () => {
-    setLoading(true);
+  const fetchData = async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const [statsRes, usersRes, pgsRes] = await Promise.all([
         api.get("/admin/stats"),
@@ -32,14 +79,21 @@ function AdminDashboard() {
         api.get("/admin/pgs")
       ]);
       setStats(statsRes.data);
-      setUsers(usersRes.data);
-      setPgs(pgsRes.data);
-      setError("");
+      setUsers(usersRes.data || []);
+      setPgs(pgsRes.data || []);
+      if (!silent) setError("");
     } catch (err) {
-      setError("Failed to fetch admin data. Please ensure you are logged in as ADMIN.");
+      if (!silent) {
+        setError("Failed to fetch admin data. Please ensure you are logged in as an Administrator.");
+      }
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
+  };
+
+  const handleTabChange = (tab, route) => {
+    setActiveTab(tab);
+    navigate(route);
   };
 
   const handleCreateOrUpdateUser = async (e) => {
@@ -53,321 +107,592 @@ function AdminDashboard() {
         setEditingUserId(null);
       } else {
         await api.post("/admin/users", userForm);
-        setSuccess("User created successfully!");
+        setSuccess("New user created successfully!");
       }
       setUserForm({ name: "", email: "", password: "", role: "STUDENT" });
+      setShowUserForm(false);
       fetchData();
     } catch (err) {
-      setError(err.response?.data?.error || "Operation failed.");
+      setError(err.response?.data?.error || "User operation failed. Please check inputs.");
     }
   };
 
-  const handleDeleteUser = async (id) => {
-    if (!window.confirm("Are you sure you want to delete this user?")) return;
-    setError("");
-    setSuccess("");
-    try {
-      await api.delete(`/admin/users/${id}`);
-      setSuccess("User deleted successfully!");
-      fetchData();
-    } catch (err) {
-      setError(err.response?.data?.error || "Failed to delete user.");
-    }
+  const handleDeleteUser = (id, userName) => {
+    setConfirmModal({
+      isOpen: true,
+      title: "Delete User Account",
+      message: `Are you sure you want to permanently delete user account '${userName || id}'? All associated records will be removed.`,
+      confirmText: "Delete User",
+      loading: false,
+      onConfirm: async () => {
+        setConfirmModal((prev) => ({ ...prev, loading: true }));
+        setError("");
+        setSuccess("");
+        try {
+          await api.delete(`/admin/users/${id}`);
+          setSuccess("User deleted successfully!");
+          setConfirmModal({ isOpen: false, title: "", message: "", confirmText: "Delete", loading: false, onConfirm: null });
+          fetchData();
+        } catch (err) {
+          setError(err.response?.data?.error || "Failed to delete user.");
+          setConfirmModal((prev) => ({ ...prev, loading: false, isOpen: false }));
+        }
+      },
+    });
   };
 
   const handleStartEdit = (user) => {
     setEditingUserId(user.id);
     setUserForm({ name: user.name, email: user.email, password: "", role: user.role });
+    setShowUserForm(true);
     setActiveTab("users");
+  };
+
+  const handleCancelUserForm = () => {
+    setEditingUserId(null);
+    setUserForm({ name: "", email: "", password: "", role: "STUDENT" });
+    setShowUserForm(false);
   };
 
   const handleCreatePG = async (e) => {
     e.preventDefault();
     setError("");
     setSuccess("");
+    if (!pgForm.ownerId) {
+      setError("Please select an owner for this PG property.");
+      return;
+    }
     try {
-      await api.post(`/admin/pgs?name=${encodeURIComponent(pgForm.name)}&address=${encodeURIComponent(pgForm.address)}&ownerId=${pgForm.ownerId}`);
-      setSuccess("PG created successfully!");
+      await api.post(
+        `/admin/pgs?name=${encodeURIComponent(pgForm.name)}&address=${encodeURIComponent(pgForm.address)}&ownerId=${pgForm.ownerId}`
+      );
+      setSuccess("PG property created successfully!");
       setPgForm({ name: "", address: "", ownerId: "" });
+      setShowPgForm(false);
       fetchData();
     } catch (err) {
-      setError(err.response?.data?.error || "Failed to create PG.");
+      setError(err.response?.data?.error || "Failed to create PG property.");
     }
   };
 
-  const handleDeletePG = async (id) => {
-    if (!window.confirm("Are you sure you want to delete this PG?")) return;
-    setError("");
-    setSuccess("");
-    try {
-      await api.delete(`/admin/pgs/${id}`);
-      setSuccess("PG deleted successfully!");
-      fetchData();
-    } catch (err) {
-      setError(err.response?.data?.error || "Failed to delete PG.");
-    }
+  const handleDeletePG = (id, pgName) => {
+    setConfirmModal({
+      isOpen: true,
+      title: "Delete PG Property",
+      message: `Are you sure you want to delete PG property '${pgName || `PG #${id}`}'? All associated rooms and tenant allocations will be removed. This action cannot be undone.`,
+      confirmText: "Delete Property",
+      loading: false,
+      onConfirm: async () => {
+        setConfirmModal((prev) => ({ ...prev, loading: true }));
+        setError("");
+        setSuccess("");
+        try {
+          await api.delete(`/admin/pgs/${id}`);
+          setSuccess(`PG property '${pgName || id}' deleted successfully!`);
+          setConfirmModal({ isOpen: false, title: "", message: "", confirmText: "Delete", loading: false, onConfirm: null });
+          fetchData();
+        } catch (err) {
+          setError(err.response?.data?.error || "Failed to delete PG. Ensure rooms are empty.");
+          setConfirmModal((prev) => ({ ...prev, loading: false, isOpen: false }));
+        }
+      },
+    });
   };
+
+  // Filtered Users
+  const filteredUsers = users.filter((u) => {
+    const matchesRole = roleFilter === "ALL" || u.role === roleFilter;
+    const matchesSearch =
+      !userSearch ||
+      u.name?.toLowerCase().includes(userSearch.toLowerCase()) ||
+      u.email?.toLowerCase().includes(userSearch.toLowerCase());
+    return matchesRole && matchesSearch;
+  });
+
+  const ownersList = users.filter((u) => u.role === "OWNER");
 
   return (
-    <div className="page">
-      <header className="dashboard-header">
-        <div>
-          <h2>Smart PG</h2>
-          <p>Admin Control Panel</p>
+    <Layout>
+      {/* Page Header */}
+      <div className="page-header-voyage">
+        <div className="header-meta">
+          <h2>
+            Admin Dashboard <span>👑</span>
+          </h2>
+          <div className="header-subtitle">
+            System overview and management of users, PG properties, and operational analytics.
+          </div>
         </div>
-        <button className="back-button" onClick={() => navigate("/dashboard")}>
-          ← Dashboard
+
+        <div className="header-actions">
+          <button onClick={fetchData} className="btn-grand btn-secondary-grand btn-sm-grand" title="Reload live data">
+            🔄 Refresh Data
+          </button>
+        </div>
+      </div>
+
+      {/* Notifications */}
+      {loading && (
+        <div className="panel-card" style={{ padding: "24px", textAlign: "center", color: "var(--text-muted)" }}>
+          Loading system administrative records...
+        </div>
+      )}
+      {error && (
+        <div className="feedback-banner feedback-error">
+          <span>⚠️</span> {error}
+        </div>
+      )}
+      {success && (
+        <div className="feedback-banner feedback-success">
+          <span>✓</span> {success}
+        </div>
+      )}
+
+      {/* Tabs */}
+      <div className="voyage-tabs">
+        <button
+          className={`voyage-tab-btn ${activeTab === "stats" ? "active" : ""}`}
+          onClick={() => handleTabChange("stats", "/admin")}
+        >
+          <DashboardIcon size={16} />
+          System Analytics
         </button>
-      </header>
 
-      <main className="page-content">
-        <h1>Admin Control Panel 🔧</h1>
-        <p className="page-description">Complete system oversight: users, PGs, operations, and analytics.</p>
+        <button
+          className={`voyage-tab-btn ${activeTab === "users" ? "active" : ""}`}
+          onClick={() => handleTabChange("users", "/manage-users")}
+        >
+          <UsersIcon size={16} />
+          Manage Users
+          <span className="tab-badge">{users.length}</span>
+        </button>
 
-        {error && <div className="error">{error}</div>}
-        {success && <div className="success">{success}</div>}
+        <button
+          className={`voyage-tab-btn ${activeTab === "pgs" ? "active" : ""}`}
+          onClick={() => handleTabChange("pgs", "/manage-pgs")}
+        >
+          <BuildingIcon size={16} />
+          Manage PGs
+          <span className="tab-badge">{pgs.length}</span>
+        </button>
+      </div>
 
-        <div className="tab-bar">
-          <button className={`tab-btn ${activeTab === "stats" ? "active" : ""}`} onClick={() => setActiveTab("stats")}>
-            📊 Statistics
-          </button>
-          <button className={`tab-btn ${activeTab === "users" ? "active" : ""}`} onClick={() => setActiveTab("users")}>
-            👥 User Management
-          </button>
-          <button className={`tab-btn ${activeTab === "pgs" ? "active" : ""}`} onClick={() => setActiveTab("pgs")}>
-            🏢 PG Management
-          </button>
-        </div>
+      {/* TAB 1: SYSTEM STATS */}
+      {activeTab === "stats" && stats && (
+        <>
+          <div className="stat-grid">
+            <div className="stat-card-deck">
+              <div className="stat-info">
+                <div className="stat-label">Total Users</div>
+                <div className="stat-value">{stats.totalUsers || 0}</div>
+                <div className="stat-subtext">Registered accounts</div>
+              </div>
+              <div className="stat-icon-crest navy">
+                <UsersIcon size={24} />
+              </div>
+            </div>
 
-        {loading ? (
-          <p>Loading admin records...</p>
-        ) : (
-          <>
-            {activeTab === "stats" && stats && (
-              <>
-                <div className="cards">
-                  <div className="card">
-                    <h3>Total Users</h3>
-                    <p>{stats.totalUsers}</p>
-                  </div>
-                  <div className="card">
-                    <h3>Owners</h3>
-                    <p>{stats.totalOwners}</p>
-                  </div>
-                  <div className="card">
-                    <h3>Wardens</h3>
-                    <p>{stats.totalWardens}</p>
-                  </div>
-                  <div className="card">
-                    <h3>Students</h3>
-                    <p>{stats.totalStudents}</p>
-                  </div>
-                  <div className="card">
-                    <h3>Total PGs</h3>
-                    <p>{stats.totalPGs}</p>
-                  </div>
-                  <div className="card">
-                    <h3>Total Rooms</h3>
-                    <p>{stats.totalRooms}</p>
-                  </div>
-                  <div className="card">
-                    <h3>Occupancy</h3>
-                    <p>{stats.totalOccupied} / {stats.totalCapacity}</p>
-                  </div>
-                  <div className="card">
-                    <h3>Total Revenue</h3>
-                    <p>₹{stats.totalRevenue?.toLocaleString() || 0}</p>
-                  </div>
+            <div className="stat-card-deck">
+              <div className="stat-info">
+                <div className="stat-label">Total PG Properties</div>
+                <div className="stat-value">{stats.totalPGs || 0}</div>
+                <div className="stat-subtext">Active establishments</div>
+              </div>
+              <div className="stat-icon-crest gold">
+                <BuildingIcon size={24} />
+              </div>
+            </div>
+
+            <div className="stat-card-deck">
+              <div className="stat-info">
+                <div className="stat-label">Total Rooms</div>
+                <div className="stat-value">{stats.totalRooms || 0}</div>
+                <div className="stat-subtext">Configured units</div>
+              </div>
+              <div className="stat-icon-crest emerald">
+                <BedIcon size={24} />
+              </div>
+            </div>
+
+            <div className="stat-card-deck">
+              <div className="stat-info">
+                <div className="stat-label">Enrolled Students</div>
+                <div className="stat-value">{stats.totalStudents || 0}</div>
+                <div className="stat-subtext">Residents housed</div>
+              </div>
+              <div className="stat-icon-crest navy">
+                <span>🎓</span>
+              </div>
+            </div>
+
+            <div className="stat-card-deck">
+              <div className="stat-info">
+                <div className="stat-label">Total Revenue</div>
+                <div className="stat-value" style={{ color: "var(--gold-600)" }}>
+                  ₹{(stats.totalRevenue || 0).toLocaleString()}
                 </div>
+                <div className="stat-subtext">{stats.totalPayments || 0} payment transactions</div>
+              </div>
+              <div className="stat-icon-crest gold">
+                <PaymentIcon size={24} />
+              </div>
+            </div>
 
-                <div className="cards">
-                  <div className="card">
-                    <h3>Open Complaints</h3>
-                    <p style={{ color: stats.openComplaints > 0 ? "#ef4444" : "#16a34a" }}>
-                      {stats.openComplaints}
-                    </p>
-                  </div>
-                  <div className="card">
-                    <h3>Pending Leaves</h3>
-                    <p style={{ color: stats.pendingLeaves > 0 ? "#f59e0b" : "#16a34a" }}>
-                      {stats.pendingLeaves}
-                    </p>
-                  </div>
-                </div>
-              </>
-            )}
+            <div className="stat-card-deck">
+              <div className="stat-info">
+                <div className="stat-label">Total Complaints</div>
+                <div className="stat-value">{stats.totalComplaints || 0}</div>
+                <div className="stat-subtext">Reported grievances</div>
+              </div>
+              <div className="stat-icon-crest navy">
+                <ComplaintIcon size={24} />
+              </div>
+            </div>
 
-            {activeTab === "users" && (
-              <div className="page-box">
-                <div className="box-title">
-                  <span>{editingUserId ? "Edit User" : "Add New User"}</span>
-                  {editingUserId && (
-                    <button className="btn-sm btn-secondary" onClick={() => { setEditingUserId(null); setUserForm({ name: "", email: "", password: "", role: "STUDENT" }); }}>
-                      Cancel Edit
-                    </button>
-                  )}
-                </div>
+            <div className="stat-card-deck">
+              <div className="stat-info">
+                <div className="stat-label">Leave Applications</div>
+                <div className="stat-value">{stats.totalLeaves || 0}</div>
+                <div className="stat-subtext">Logged student leaves</div>
+              </div>
+              <div className="stat-icon-crest emerald">
+                <LeaveIcon size={24} />
+              </div>
+            </div>
+          </div>
+        </>
+      )}
 
+      {/* TAB 2: MANAGE USERS */}
+      {activeTab === "users" && (
+        <div className="panel-card">
+          <div className="panel-card-header">
+            <h3>
+              <UsersIcon size={18} />
+              User Directory & Role Management
+            </h3>
+            <button
+              className="btn-grand btn-gold-grand btn-sm-grand"
+              onClick={() => {
+                setEditingUserId(null);
+                setUserForm({ name: "", email: "", password: "", role: "STUDENT" });
+                setShowUserForm(!showUserForm);
+              }}
+            >
+              {showUserForm ? "✕ Close Form" : "+ Add New User"}
+            </button>
+          </div>
+
+          <div className="panel-card-body">
+            {/* Create/Edit Form */}
+            {showUserForm && (
+              <div style={{ background: "var(--bg-parchment)", padding: "20px", borderRadius: "12px", border: "1px solid var(--border-gold)", marginBottom: "24px" }}>
+                <h4 style={{ fontSize: "16px", fontWeight: "700", marginBottom: "14px", color: "var(--navy-900)" }}>
+                  {editingUserId ? `✏️ Edit User (#${editingUserId})` : "+ Create New System User"}
+                </h4>
                 <form onSubmit={handleCreateOrUpdateUser}>
-                  <div className="form-grid">
-                    <div className="form-group">
-                      <label>Full Name</label>
+                  <div className="form-grid-2">
+                    <div className="form-field-group">
+                      <label className="form-label-grand">Full Name</label>
                       <input
                         type="text"
-                        placeholder="John Doe"
+                        className="form-input-grand"
+                        placeholder="e.g. Ramesh Kumar"
                         value={userForm.name}
                         onChange={(e) => setUserForm({ ...userForm, name: e.target.value })}
                         required
                       />
                     </div>
-                    <div className="form-group">
-                      <label>Email Address</label>
+                    <div className="form-field-group">
+                      <label className="form-label-grand">Email Address</label>
                       <input
                         type="email"
-                        placeholder="user@example.com"
+                        className="form-input-grand"
+                        placeholder="e.g. ramesh@example.com"
                         value={userForm.email}
                         onChange={(e) => setUserForm({ ...userForm, email: e.target.value })}
                         required
                       />
                     </div>
-                    <div className="form-group">
-                      <label>{editingUserId ? "Password (leave blank to keep)" : "Password"}</label>
+                  </div>
+
+                  <div className="form-grid-2">
+                    <div className="form-field-group">
+                      <label className="form-label-grand">
+                        Password {editingUserId && <small>(Leave blank to keep unchanged)</small>}
+                      </label>
                       <input
                         type="password"
-                        placeholder="Secret password"
+                        className="form-input-grand"
+                        placeholder={editingUserId ? "Leave blank to keep unchanged" : "Min 6 characters"}
                         value={userForm.password}
                         onChange={(e) => setUserForm({ ...userForm, password: e.target.value })}
                         required={!editingUserId}
                       />
                     </div>
-                    <div className="form-group">
-                      <label>Role</label>
+
+                    <div className="form-field-group">
+                      <label className="form-label-grand">User Role</label>
                       <select
+                        className="form-select-grand"
                         value={userForm.role}
                         onChange={(e) => setUserForm({ ...userForm, role: e.target.value })}
                       >
-                        <option value="ADMIN">ADMIN</option>
-                        <option value="OWNER">OWNER</option>
-                        <option value="WARDEN">WARDEN</option>
-                        <option value="STUDENT">STUDENT</option>
+                        <option value="STUDENT">Student</option>
+                        <option value="OWNER">Property Owner</option>
+                        <option value="WARDEN">Hostel Warden</option>
+                        <option value="ADMIN">Administrator</option>
                       </select>
                     </div>
                   </div>
-                  <button type="submit" className="btn-sm btn-primary" style={{ padding: "10px 20px" }}>
-                    {editingUserId ? "Update User" : "Create User"}
-                  </button>
-                </form>
 
-                <h3 style={{ marginTop: "30px", marginBottom: "15px", fontSize: "16px" }}>All Users Directory</h3>
-                <table className="data-table">
-                  <thead>
-                    <tr>
-                      <th>ID</th>
-                      <th>Name</th>
-                      <th>Email</th>
-                      <th>Role</th>
-                      <th>Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {users.map((u) => (
-                      <tr key={u.id}>
-                        <td>{u.id}</td>
-                        <td>{u.name}</td>
-                        <td>{u.email}</td>
-                        <td>
-                          <span className={`badge ${
-                            u.role === "ADMIN" ? "badge-danger" :
-                            u.role === "OWNER" ? "badge-info" :
-                            u.role === "WARDEN" ? "badge-warning" : "badge-success"
-                          }`}>
-                            {u.role}
-                          </span>
-                        </td>
-                        <td>
-                          <button className="btn-sm btn-secondary" onClick={() => handleStartEdit(u)}>Edit</button>
-                          <button className="btn-sm btn-danger" onClick={() => handleDeleteUser(u.id)}>Delete</button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                  <div style={{ display: "flex", gap: "10px", marginTop: "10px" }}>
+                    <button type="submit" className="btn-grand btn-primary-grand btn-sm-grand">
+                      {editingUserId ? "Save Changes" : "Create User"}
+                    </button>
+                    <button type="button" onClick={handleCancelUserForm} className="btn-grand btn-secondary-grand btn-sm-grand">
+                      Cancel
+                    </button>
+                  </div>
+                </form>
               </div>
             )}
 
-            {activeTab === "pgs" && (
-              <div className="page-box">
-                <div className="box-title">Create New PG</div>
+            {/* Filters */}
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px", flexWrap: "wrap", gap: "12px" }}>
+              <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                {[
+                  { key: "ALL", label: "All Users" },
+                  { key: "OWNER", label: "Owners" },
+                  { key: "WARDEN", label: "Wardens" },
+                  { key: "STUDENT", label: "Students" },
+                  { key: "ADMIN", label: "Admins" }
+                ].map((item) => (
+                  <button
+                    key={item.key}
+                    onClick={() => setRoleFilter(item.key)}
+                    className={`btn-grand btn-sm-grand ${roleFilter === item.key ? "btn-primary-grand" : "btn-secondary-grand"}`}
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+
+              <input
+                type="text"
+                placeholder="🔍 Search users by name or email..."
+                className="form-input-grand"
+                style={{ width: "260px" }}
+                value={userSearch}
+                onChange={(e) => setUserSearch(e.target.value)}
+              />
+            </div>
+
+            {/* Users Table */}
+            <div className="table-responsive">
+              <table className="grand-table">
+                <thead>
+                  <tr>
+                    <th>User ID</th>
+                    <th>Name</th>
+                    <th>Email Address</th>
+                    <th>Role</th>
+                    <th style={{ textAlign: "right" }}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredUsers.length === 0 ? (
+                    <tr>
+                      <td colSpan="5" style={{ textAlign: "center", padding: "30px", color: "var(--text-muted)" }}>
+                        No users found matching the selected filter.
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredUsers.map((u) => (
+                      <tr key={u.id}>
+                        <td><strong>#{u.id}</strong></td>
+                        <td style={{ fontWeight: "600", color: "var(--navy-900)" }}>{u.name}</td>
+                        <td style={{ color: "var(--text-muted)" }}>{u.email}</td>
+                        <td>
+                          <span
+                            className={`badge-grand ${
+                              u.role === "ADMIN"
+                                ? "badge-danger"
+                                : u.role === "OWNER"
+                                ? "badge-warning"
+                                : u.role === "WARDEN"
+                                ? "badge-in_progress"
+                                : "badge-present"
+                            }`}
+                          >
+                            {u.role}
+                          </span>
+                        </td>
+                        <td style={{ textAlign: "right" }}>
+                          <button
+                            onClick={() => handleStartEdit(u)}
+                            className="btn-grand btn-secondary-grand btn-sm-grand"
+                            style={{ marginRight: "6px" }}
+                          >
+                            Edit
+                          </button>
+                          <button
+                            onClick={() => handleDeleteUser(u.id, u.name)}
+                            className="btn-grand btn-danger-grand btn-sm-grand"
+                          >
+                            Delete
+                          </button>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* TAB 3: MANAGE PGS */}
+      {activeTab === "pgs" && (
+        <div className="panel-card">
+          <div className="panel-card-header">
+            <h3>
+              <BuildingIcon size={18} />
+              Registered PG Properties
+            </h3>
+            <button
+              className="btn-grand btn-gold-grand btn-sm-grand"
+              onClick={() => setShowPgForm(!showPgForm)}
+            >
+              {showPgForm ? "✕ Close Form" : "+ Register New PG"}
+            </button>
+          </div>
+
+          <div className="panel-card-body">
+            {showPgForm && (
+              <div style={{ background: "var(--bg-parchment)", padding: "20px", borderRadius: "12px", border: "1px solid var(--border-gold)", marginBottom: "24px" }}>
+                <h4 style={{ fontSize: "16px", fontWeight: "700", marginBottom: "14px", color: "var(--navy-900)" }}>
+                  + Register New PG Property
+                </h4>
                 <form onSubmit={handleCreatePG}>
-                  <div className="form-grid">
-                    <div className="form-group">
-                      <label>PG Name</label>
+                  <div className="form-grid-3">
+                    <div className="form-field-group">
+                      <label className="form-label-grand">Property Name</label>
                       <input
                         type="text"
-                        placeholder="Sunrise Hostel"
+                        className="form-input-grand"
+                        placeholder="e.g. Royal PG Hostel"
                         value={pgForm.name}
                         onChange={(e) => setPgForm({ ...pgForm, name: e.target.value })}
                         required
                       />
                     </div>
-                    <div className="form-group">
-                      <label>Address</label>
+
+                    <div className="form-field-group">
+                      <label className="form-label-grand">Address / Location</label>
                       <input
                         type="text"
-                        placeholder="123 Tech Park Road"
+                        className="form-input-grand"
+                        placeholder="e.g. 124 North Campus Road"
                         value={pgForm.address}
                         onChange={(e) => setPgForm({ ...pgForm, address: e.target.value })}
                         required
                       />
                     </div>
-                    <div className="form-group">
-                      <label>Assigned Owner</label>
+
+                    <div className="form-field-group">
+                      <label className="form-label-grand">Designated Property Owner</label>
                       <select
+                        className="form-select-grand"
                         value={pgForm.ownerId}
                         onChange={(e) => setPgForm({ ...pgForm, ownerId: e.target.value })}
                         required
                       >
-                        <option value="">Select Owner</option>
-                        {users.filter(u => u.role === "OWNER" || u.role === "ADMIN").map(o => (
-                          <option key={o.id} value={o.id}>{o.name} ({o.email})</option>
+                        <option value="">Select an Owner...</option>
+                        {ownersList.map((owner) => (
+                          <option key={owner.id} value={owner.id}>
+                            {owner.name} ({owner.email})
+                          </option>
                         ))}
                       </select>
                     </div>
                   </div>
-                  <button type="submit" className="btn-sm btn-primary" style={{ padding: "10px 20px" }}>
-                    Create PG
-                  </button>
-                </form>
 
-                <h3 style={{ marginTop: "30px", marginBottom: "15px", fontSize: "16px" }}>Registered PGs</h3>
-                <table className="data-table">
-                  <thead>
-                    <tr>
-                      <th>ID</th>
-                      <th>PG Name</th>
-                      <th>Address</th>
-                      <th>Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {pgs.map((pg) => (
-                      <tr key={pg.id}>
-                        <td>{pg.id}</td>
-                        <td><strong>{pg.name}</strong></td>
-                        <td>{pg.address}</td>
-                        <td>
-                          <button className="btn-sm btn-danger" onClick={() => handleDeletePG(pg.id)}>Delete</button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                  <div style={{ display: "flex", gap: "10px" }}>
+                    <button type="submit" className="btn-grand btn-primary-grand btn-sm-grand">
+                      Create PG
+                    </button>
+                    <button type="button" onClick={() => setShowPgForm(false)} className="btn-grand btn-secondary-grand btn-sm-grand">
+                      Cancel
+                    </button>
+                  </div>
+                </form>
               </div>
             )}
-          </>
-        )}
-      </main>
-    </div>
+
+            <div className="table-responsive">
+              <table className="grand-table">
+                <thead>
+                  <tr>
+                    <th>PG ID</th>
+                    <th>Property Name</th>
+                    <th>Address</th>
+                    <th>Assigned Owner</th>
+                    <th style={{ textAlign: "right" }}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pgs.length === 0 ? (
+                    <tr>
+                      <td colSpan="5" style={{ textAlign: "center", padding: "30px", color: "var(--text-muted)" }}>
+                        No PG properties registered yet. Click "+ Register New PG" above.
+                      </td>
+                    </tr>
+                  ) : (
+                    pgs.map((pg) => (
+                      <tr key={pg.id}>
+                        <td><strong>#{pg.id}</strong></td>
+                        <td style={{ fontWeight: "700", color: "var(--navy-900)" }}>🏢 {pg.name}</td>
+                        <td style={{ color: "var(--text-muted)" }}>{pg.address}</td>
+                        <td>
+                          {pg.owner ? (
+                            <span>
+                              <strong>{pg.owner.name}</strong> <small style={{ color: "var(--text-muted)" }}>({pg.owner.email})</small>
+                            </span>
+                          ) : (
+                            <span className="badge-grand badge-warning">Unassigned</span>
+                          )}
+                        </td>
+                        <td style={{ textAlign: "right" }}>
+                          <button
+                            onClick={() => handleDeletePG(pg.id, pg.name)}
+                            className="btn-grand btn-danger-grand btn-sm-grand"
+                          >
+                            Delete
+                          </button>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Confirmation Modal */}
+      <ConfirmModal
+        isOpen={confirmModal.isOpen}
+        title={confirmModal.title}
+        message={confirmModal.message}
+        confirmText={confirmModal.confirmText}
+        loading={confirmModal.loading}
+        onConfirm={confirmModal.onConfirm}
+        onCancel={() => setConfirmModal({ isOpen: false, title: "", message: "", confirmText: "Delete", loading: false, onConfirm: null })}
+      />
+    </Layout>
   );
 }
 
