@@ -52,12 +52,17 @@ function Register() {
       return;
     }
 
+    if (!["STUDENT", "OWNER", "WARDEN"].includes(role)) {
+      setError("Registration is restricted to Student, Property Owner, or Hostel Warden.");
+      return;
+    }
+
     setLoading(true);
     try {
       await api.post("/auth/register", {
-        name,
-        email,
-        password,
+        name: name.trim(),
+        email: email.trim().toLowerCase(),
+        password: password.trim(),
         role,
       });
 
@@ -198,7 +203,6 @@ function Register() {
                 <option value="STUDENT">Student (Resident)</option>
                 <option value="OWNER">Property Owner</option>
                 <option value="WARDEN">Hostel Warden</option>
-                <option value="ADMIN">System Administrator</option>
               </select>
             </div>
 

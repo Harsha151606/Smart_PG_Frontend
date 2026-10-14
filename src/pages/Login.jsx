@@ -13,16 +13,19 @@ function Login() {
 
   const handleLogin = async (e) => {
     e.preventDefault();
-    setError("");
-
-    if (!email || !password) {
+    const cleanEmail = (email || "").trim();
+    if (!cleanEmail || !password) {
       setError("Please enter your email and password.");
       return;
     }
 
     setLoading(true);
+    setError("");
     try {
-      const response = await api.post("/auth/login", { email, password });
+      const response = await api.post("/auth/login", {
+        email: cleanEmail,
+        password: password,
+      });
 
       const loggedInUser = {
         id: response.data.userId,
@@ -36,7 +39,7 @@ function Login() {
       localStorage.setItem("token", response.data.token);
       localStorage.setItem("role", response.data.role);
 
-      // Navigate to role-specific dashboard
+      // Navigate to role-specific dashboard based on trusted role from server
       if (response.data.role === "ADMIN") {
         navigate("/admin");
       } else if (response.data.role === "OWNER") {
@@ -51,12 +54,6 @@ function Login() {
     } finally {
       setLoading(false);
     }
-  };
-
-  const fillDemo = (demoEmail) => {
-    setEmail(demoEmail);
-    setPassword("password123");
-    setError("");
   };
 
   return (
@@ -109,41 +106,6 @@ function Login() {
         <div className="auth-form-card">
           <h2>Sign In to Smart PG</h2>
           <p className="auth-sub">Enter your account credentials to access your dashboard.</p>
-
-          {/* Quick Demo Switcher */}
-          <div className="demo-account-box">
-            <p>⚡ Quick Role Switcher (Evaluation Demos)</p>
-            <div className="demo-chips">
-              <button
-                type="button"
-                className="demo-chip"
-                onClick={() => fillDemo("student@smartpg.com")}
-              >
-                🎓 Student
-              </button>
-              <button
-                type="button"
-                className="demo-chip"
-                onClick={() => fillDemo("owner@smartpg.com")}
-              >
-                🏢 Owner
-              </button>
-              <button
-                type="button"
-                className="demo-chip"
-                onClick={() => fillDemo("warden@smartpg.com")}
-              >
-                📋 Warden
-              </button>
-              <button
-                type="button"
-                className="demo-chip"
-                onClick={() => fillDemo("admin@smartpg.com")}
-              >
-                👑 Admin
-              </button>
-            </div>
-          </div>
 
           {error && (
             <div className="feedback-banner feedback-error">
