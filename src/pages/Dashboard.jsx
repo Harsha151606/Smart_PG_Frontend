@@ -4,8 +4,6 @@ import api from "../api";
 import Layout from "../components/Layout";
 import {
   UserIcon,
-  ShieldIcon,
-  DashboardIcon,
   BedIcon,
   PaymentIcon,
   AttendanceIcon,
@@ -184,7 +182,7 @@ function Dashboard() {
     return Math.round((present / records.length) * 100);
   }, [data.attendance]);
 
-  const shortcut = (label, path) => navigate(path);
+  const shortcut = (_label, path) => { void _label; navigate(path); };
 
   if (!user) {
     return <Layout><div className="panel-card"><div className="panel-card-body">Preparing your secure dashboard…</div></div></Layout>;
