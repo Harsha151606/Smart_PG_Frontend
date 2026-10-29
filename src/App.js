@@ -190,6 +190,15 @@ function App() {
           }
         />
 
+                <Route
+          path="/manage-complaints"
+          element={
+            <ProtectedRoute allowedRoles={["WARDEN", "ADMIN"]}>
+              <WardenDashboard />
+            </ProtectedRoute>
+          }
+        />
+
         {/* Fallback 404 Route */}
         <Route path="*" element={<NotFound />} />
       </Routes>
