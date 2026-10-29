@@ -66,7 +66,7 @@ function AdminDashboard() {
     fetchData(false);
     const interval = setInterval(() => {
       fetchData(true);
-    }, 6000);
+    }, 30000);
     return () => clearInterval(interval);
   }, []);
 
@@ -278,6 +278,14 @@ function AdminDashboard() {
       </div>
 
       {/* TAB 1: SYSTEM STATS */}
+      {activeTab === "stats" && !loading && !stats && !error && (
+        <div className="empty-deck-state">
+          <div className="empty-deck-icon">📊</div>
+          <h4>System metrics are unavailable</h4>
+          <p>We could not retrieve the latest system summary. Refresh to try again; no placeholder totals are shown.</p>
+          <button type="button" className="btn-grand btn-primary-grand btn-sm-grand" onClick={() => fetchData()}>Retry loading metrics</button>
+        </div>
+      )}
       {activeTab === "stats" && stats && (
         <>
           <div className="stat-grid">
