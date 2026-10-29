@@ -171,6 +171,13 @@ function Navbar() {
                 <UsersIcon size={16} />
                 Directory
               </Link>
+              <Link
+                to="/manage-complaints"
+                className={`nav-item ${location.pathname === "/manage-complaints" ? "active" : ""}`}
+              >
+                <ComplaintIcon size={16} />
+                Complaints
+              </Link>
             </>
           )}
 
