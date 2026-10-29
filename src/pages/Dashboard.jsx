@@ -158,10 +158,13 @@ function Dashboard() {
         }
       }
     };
+    const onRefresh = () => load(true);
+    window.addEventListener("smart-pg-refresh", onRefresh);
     load(false);
     const interval = window.setInterval(() => load(true), 30000);
     return () => {
       active = false;
+      window.removeEventListener("smart-pg-refresh", onRefresh);
       window.clearInterval(interval);
     };
   }, [user]);
@@ -203,7 +206,7 @@ function Dashboard() {
           <p>{info.subtitle}</p>
           <div className="overview-welcome-meta"><span className={`user-role-pill ${info.badgeClass}`}>{info.title}</span><span>Operational overview</span></div>
         </div>
-        <button type="button" className="btn-grand btn-secondary-grand" onClick={() => window.location.reload()} disabled={refreshing}>
+        <button type="button" className="btn-grand btn-secondary-grand" onClick={() => window.dispatchEvent(new Event("smart-pg-refresh"))} disabled={refreshing}>
           {refreshing ? "Refreshing…" : "↻ Refresh overview"}
         </button>
       </section>
