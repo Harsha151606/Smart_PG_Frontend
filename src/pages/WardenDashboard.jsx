@@ -219,7 +219,7 @@ function WardenDashboard() {
 
         <button
           className={`voyage-tab-btn ${activeTab === "complaints" ? "active" : ""}`}
-          onClick={() => setActiveTab("complaints")}
+          onClick={() => handleTabChange("complaints", "/manage-complaints")}
         >
           <ComplaintIcon size={16} />
           Complaints
