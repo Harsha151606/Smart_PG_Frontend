@@ -39,6 +39,7 @@ function WardenDashboard() {
     if (location.pathname === "/manage-attendance") setActiveTab("attendance");
     else if (location.pathname === "/manage-leaves") setActiveTab("leaves");
     else if (location.pathname === "/view-students") setActiveTab("students");
+    else if (location.pathname === "/manage-complaints") setActiveTab("complaints");
     else if (location.pathname === "/warden") setActiveTab("overview");
   }, [location.pathname]);
 
